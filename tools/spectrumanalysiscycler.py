@@ -158,7 +158,7 @@ def main(
         print(" " * 75, end="\r")
     for i in as_completed(fut):
         print(i)
-    ProcessExecutor.shutdown(True, False)
+    print("Cycle Complete!")
 
 if __name__ == "__main__":
     args = dialog()
