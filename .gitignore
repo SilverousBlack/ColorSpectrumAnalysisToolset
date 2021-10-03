@@ -116,3 +116,7 @@ dmypy.json
 # Visual Studio Code
 .vscode/*
 *.code-workspace
+
+# results
+*.csv
+*.txt

@@ -1,4 +1,5 @@
-from PIL import Image, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter
+import numpy as np
 
 def ImprovedSecondDerivativeEdgeDetection(target: Image.Image):
     width, height = target.size
@@ -7,22 +8,10 @@ def ImprovedSecondDerivativeEdgeDetection(target: Image.Image):
     copy = (ImageEnhance.Contrast(target).enhance(1.75)).filter(ImageFilter.FIND_EDGES).convert("LA")
     copy = np.array(copy, np.uint32)[:, :, 0]
     edgepx = copy[:, :].max() + 1
-    # edge denoising routine
-    #for i in range(height):
-    #    for j in range(width):
-    #        if copy[i, j] >= (edgepx * 0.5):
-    #            copy[i, j] = 255
-    #        elif (edgepx * 0.25) <= copy[i, j] < (edgepx * 0.5):
-    #            copy[i, j] = 127
-    #        elif (edgepx * 0.125) <= copy[i, j] < (edgepx * 0.25):
-    #            copy[i, j] = 63
-    #        else:
-    #           copy[i, j] = 0
     copy[copy >= (edgepx * 0.5)] = 255
     copy[(copy >= (edgepx * 0.25)) & (copy < edgepx * 0.5)] = 127
     copy[(copy >= (edgepx * 0.125)) & (copy < (edgepx * 0.25))] = 63
     copy[copy < (edgepx * 0.125)] = 0
-    # probability edge enhancement with edge denoising
     internal = np.zeros((height, width), np.uint32)
     for i in range(height):
         for j in range(width):

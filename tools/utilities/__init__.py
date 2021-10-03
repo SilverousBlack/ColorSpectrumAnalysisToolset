@@ -1,2 +1,2 @@
-from colordata import PixelSummary
-from edgedetectionalgorithms import *
+from .colordata import PixelSummary
+from .edgedetectionalgorithms import *

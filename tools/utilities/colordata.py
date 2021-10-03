@@ -1,7 +1,13 @@
 import numpy as np
 
 def GetHexString(data: np.ndarray):
-    return "0x" + str(hex(data[0].lstrip("0x").rstrip("L"))) + str(hex(data[1].lstrip("0x").rstrip("L"))) + str(hex(data[2].lstrip("0x").rstrip("L")))
+    rb = str(hex(data[0]).lstrip("0x").rstrip("L")) or "00"
+    rbuf = rb if len(rb) == 2 else "0" + rb
+    gb = str(hex(data[1]).lstrip("0x").rstrip("L")) or "00"
+    gbuf = gb if len(gb) == 2 else "0" + gb
+    bb = str(hex(data[2]).lstrip("0x").rstrip("L")) or "00"
+    bbuf = bb if len(bb) == 2 else "0" + bb
+    return "0x" + rbuf + gbuf + bbuf
 
 def WhiteData(data: np.ndarray):
     return [data.min(), (data.min() / 255) * 100]
