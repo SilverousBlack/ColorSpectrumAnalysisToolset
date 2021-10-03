@@ -142,12 +142,18 @@ def main(
     ProcessExecutor = ThreadPoolExecutor(max_workers=workers)
     fut = {ProcessExecutor.submit(ImageProcess, pl.Path(target), pl.Path(savelocation)): target for target in targets}
     start = time_ns()
-    active = len(ProcessExecutor._threads)
-    pending = ProcessExecutor._work_queue.qsize() - workers if ProcessExecutor._work_queue.qsize() - workers > 0 else 0
-    while (active > 0 or pending > 0):
-        print("Running... Active: {} | Pending: {} | Workers: {} | Elapsed: {:.2f}".format(active, pending, workers, (time_ns() - start) / 1000000000), end="\r")
-        active = len(ProcessExecutor._threads)
-        pending = ProcessExecutor._work_queue.qsize() - workers if ProcessExecutor._work_queue.qsize() - workers > 0 else 0
+    completed = 0
+    while (completed != len(targets)):
+        active = 0
+        rusk = 0
+        for i in fut:
+            if "state=running" in str(i):
+                active += 1
+            if "state=finished" in str(i):
+                rusk += 1
+        completed = rusk
+        pending = len(targets) - (completed + active)
+        print("Running... Active: {} | Pending: {} | Completed: {} | Elapsed: {:.2f}".format(active, pending, completed, (time_ns() - start) / 1000000000), end="\r")
         sleep(0.5)
         print(" " * 75, end="\r")
     for i in as_completed(fut):
