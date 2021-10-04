@@ -30,7 +30,12 @@ def ColorMeshCompensate(target: pl.Path):
     # support to follow
     return Image.open(target)
 
-def ImageProcess(target: pl.Path, saveloc: pl.Path, compensate: bool = False):
+def ImageProcess(
+    target: pl.Path, 
+    saveloc: pl.Path,
+    dodgewhite = True,
+    compensate: bool = False
+):
     LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
                                        "red", "green", "blue", 
                                        "white", "whitepercent",
@@ -48,7 +53,10 @@ def ImageProcess(target: pl.Path, saveloc: pl.Path, compensate: bool = False):
             data = internal[i, j]
             result = utilities.PixelSummary(data)
             result.update({"locus": GetLocus(i, j, width, height)})
-            LocalTable = LocalTable.append(result, ignore_index=True)
+            if dodgewhite == True and result["hex"] == "#FFFFFF":
+                continue
+            else:
+                LocalTable = LocalTable.append(result, ignore_index=True)
     total_time = (process_time_ns() - start) / 1000000000
     totalpx = height * width
     fname = str(target.name).rstrip(pl.Path(target.name).suffix)
@@ -132,15 +140,35 @@ def dialog():
             print(bar)
         del target
     print(bar)
+    while(True):
+        target = input("Dodge white [#FFFFFF] pixels (y/n): ").lower()
+        if target in ["y", "n"]:
+            if target == "y":
+                print("White pixels will dodged.")
+                internal["dodgewhite"] = True
+                break
+            elif target == "n":
+                print("White pixels will not be dodged.")
+                internal["dodgewhite"] = False
+                break
+        else:
+            print("Unknown input. Try Again.")
+            print(bar)
+        del target
+    print(bar)
     return internal
 
 def main(
     targets: iterable,
     savelocation: pl.Path,
+    dodgewhite: bool,
     workers: int
 ):
     ProcessExecutor = ThreadPoolExecutor(max_workers=workers)
-    fut = {ProcessExecutor.submit(ImageProcess, pl.Path(target), pl.Path(savelocation)): target for target in targets}
+    fut = {ProcessExecutor.submit(ImageProcess, 
+                                  pl.Path(target), 
+                                  pl.Path(savelocation), 
+                                  dodgewhite): target for target in targets}
     start = time_ns()
     completed = 0
     while (completed != len(targets)):

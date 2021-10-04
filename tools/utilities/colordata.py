@@ -7,7 +7,7 @@ def GetHexString(data: np.ndarray):
     gbuf = gb if len(gb) == 2 else "0" + gb
     bb = str(hex(data[2]).lstrip("0x").rstrip("L")) or "00"
     bbuf = bb if len(bb) == 2 else "0" + bb
-    return "0x" + rbuf + gbuf + bbuf
+    return str("#" + rbuf + gbuf + bbuf).upper()
 
 def WhiteData(data: np.ndarray):
     return [data.min(), (data.min() / 255) * 100]
