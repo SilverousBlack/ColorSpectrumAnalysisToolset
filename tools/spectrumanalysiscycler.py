@@ -24,6 +24,9 @@ import utilities
 
 bar = "===== ===== ===== ===== ====="
 
+def GetID(x, xmax):
+    return (len(str(xmax)) - len(str(x))) * "_" + str(x)
+
 def  GetLocus(x: int, y: int, xmax: int, ymax: int): 
     xbuf = (len(str(xmax)) - len(str(x))) * "0" + str(x)
     ybuf = (len(str(ymax)) - len(str(y))) * "0" + str(y)
@@ -85,7 +88,7 @@ def ImageProcess(
     totalpx = height * width
     fname = str(target.name).rstrip(pl.Path(target.name).suffix)
     LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
-    unique_colors = LocalTable.hex.unique()
+    unique_colors = dict(LocalTable.hex.value_counts())
     fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
     fbuf.writelines([
         bar + "\n"
@@ -113,9 +116,10 @@ def ImageProcess(
         bar + "\n",
         "Unique Color Count: " + str(len(unique_colors)) + " colors\n"
     ])
-    for i in unique_colors:
-        count = LocalTable[LocalTable.hex == i].shape[0]
-        fbuf.write("\t> " + i + " [" + str(count) + " instances]\n")
+    index = 1
+    for key, value in unique_colors.items():
+        fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + key + " [" + str(value) + " instances]\n")
+        index += 1
     fbuf.close()
 
 # CLI in-line argument support coming soon
@@ -174,7 +178,7 @@ def dialog():
         availthr = (cpu_count() - 2)
         usablethr = (availthr - (availthr % internal["workers"])) / internal["workers"]
         print("Available Threads per Core: " + str(usablethr))
-        target = int(input("Input simultaneous threads [multithreads]: ")) or 0
+        target = int(input("Input simultaneous threads [multithreading]: ")) or 0
         if 0 < target <= usablethr:
             internal["subworkers"] = target
             break
