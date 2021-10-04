@@ -15,8 +15,8 @@ def WhiteData(data: np.ndarray):
 def BlackData(data: np.ndarray):
     return [(255 - data.max()), ((255 - data.max()) / 255) * 100]
 
-def PixelSummary(data: np.ndarray):
-    internal = {}
+def PixelSummary(locus: str, data: np.ndarray):
+    internal = {"locus": locus}
     internal["red"] = data[0]
     internal["green"] = data[1]
     internal["blue"] = data[2]

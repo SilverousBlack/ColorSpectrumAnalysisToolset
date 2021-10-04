@@ -9,17 +9,19 @@ import pandas as pd
 import numpy as np
 
 # images
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image
 
 # time
 from time import time_ns, process_time_ns, sleep
 
 # concurrency
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
 # prebuilt utilities
 import utilities
+
+bar = "===== ===== ===== ===== ====="
 
 def  GetLocus(x: int, y: int, xmax: int, ymax: int): 
     xbuf = (len(str(xmax)) - len(str(x))) * "0" + str(x)
@@ -33,6 +35,7 @@ def ColorMeshCompensate(target: pl.Path):
 def ImageProcess(
     target: pl.Path, 
     saveloc: pl.Path,
+    subworkers: int,
     dodgewhite = True,
     compensate: bool = False
 ):
@@ -46,52 +49,59 @@ def ImageProcess(
                                     "black": "int64", "blackpercent": "int64"})
     start = process_time_ns()
     internal = Image.open(target) if compensate == False else ColorMeshCompensate(target)
-    height, width = internal.size
+    width, height = internal.size
     internal = np.array(internal, np.uint32)
     for i in range(width):
-        for j in range(height):
-            data = internal[i, j]
-            result = utilities.PixelSummary(data)
-            result.update({"locus": GetLocus(i, j, width, height)})
+        LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
+        fut = {LocalExecutor.submit(utilities.PixelSummary, GetLocus(i, j, width, height), internal[j, i]): j for j in range(height)}
+        for thr in as_completed(fut):
+            result = thr.result()
             if dodgewhite == True and result["hex"] == "#FFFFFF":
                 continue
             else:
                 LocalTable = LocalTable.append(result, ignore_index=True)
     total_time = (process_time_ns() - start) / 1000000000
+    LocalTable.sort_values(by="hex")
     totalpx = height * width
     fname = str(target.name).rstrip(pl.Path(target.name).suffix)
     LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
     unique_colors = LocalTable.hex.unique()
     fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
     fbuf.writelines([
+        bar + "\n"
         "File: " + str(target) + "\n",
         "Height: " + str(height) + "px\n",
         "Width: " + str(width) + "px\n",
+        bar + "\n",
         "Total Pixels: " + str(totalpx) + "px\n"
-        "Total Process Time: " + str(total_time) + " seconds\n"
+        "Total Process Time: " + str(total_time) + " seconds\n",
+        bar + "\n",
+        "Red Pixel Color Intensity Statistics" + "\n",
+        "\tBase: " + str(LocalTable["red"].min()) + "\n",
+        "\tMean: " + str(LocalTable["red"].mean()) + "\n",
+        "\tPeak: " + str(LocalTable["red"].max()) + "\n",
+        bar + "\n",
+        "Green Pixel Color Intensity Statistics" + "\n",
+        "\tBase: " + str(LocalTable["green"].min()) + "\n",
+        "\tMean: " + str(LocalTable["green"].mean()) + "\n",
+        "\tPeak: " + str(LocalTable["green"].max()) + "\n",
+        bar + "\n",
+        "Blue Pixel Color Intensity Statistics" + "\n",
+        "\tBase: " + str(LocalTable["blue"].min()) + "\n",
+        "\tMean: " + str(LocalTable["blue"].mean()) + "\n",
+        "\tPeak: " + str(LocalTable["blue"].max()) + "\n",
+        bar + "\n",
         "Unique Color Count: " + str(len(unique_colors)) + " colors\n"
     ])
     for i in unique_colors:
         count = LocalTable[LocalTable.hex == i].shape[0]
         fbuf.write("\t> " + i + " [" + str(count) + " instances]\n")
-    fbuf.writelines([
-        "Red Pixel Intensity Base: " + str(LocalTable["red"].min()) + "\n",
-        "Red Pixel Intensity Mean: " + str(LocalTable["red"].mean()) + "\n",
-        "Red Pixel Intensity Peak: " + str(LocalTable["red"].max()) + "\n",
-        "Green Pixel Intensity Base: " + str(LocalTable["green"].min()) + "\n",
-        "Green Pixel Intensity Mean: " + str(LocalTable["green"].mean()) + "\n",
-        "Green Pixel Intensity Peak: " + str(LocalTable["green"].max()) + "\n",
-        "Blue Pixel Intensity Base: " + str(LocalTable["blue"].min()) + "\n",
-        "Blue Pixel Intensity Mean: " + str(LocalTable["blue"].mean()) + "\n",
-        "Blue Pixel Intensity Peak: " + str(LocalTable["blue"].max()) + "\n"
-    ])
     fbuf.close()
 
 # CLI in-line argument support coming soon
 
 def dialog():
     # CLI dialog when no in-line arguments are given 
-    bar = "===== ===== ===== ===== ====="
     internal = {}
     print("Color Spectrum Analysis Tool")
     print(bar)
@@ -131,9 +141,22 @@ def dialog():
     print(bar)
     while(True):
         print("Available CPU Cores: " + str(cpu_count() - 2))
-        target = int(input("Input CPU Core usage [multiprocessing]: ")) or 0
+        target = int(input("Input simultaneous subprocesses [multiprocessing]: ")) or 0
         if 0 < target <= (cpu_count() - 2):
             internal["workers"] = target
+            break
+        else:
+            print("Usage is out of range. Try Again.")
+            print(bar)
+        del target
+    print(bar)
+    while(True):
+        availthr = (cpu_count() - 2)
+        usablethr = (availthr - (availthr % internal["workers"])) / internal["workers"]
+        print("Available Threads per Core: " + str(usablethr))
+        target = int(input("Input simultaneous threads [multithreads]: ")) or 0
+        if 0 < target <= usablethr:
+            internal["subworkers"] = target
             break
         else:
             print("Usage is out of range. Try Again.")
@@ -161,13 +184,15 @@ def dialog():
 def main(
     targets: iterable,
     savelocation: pl.Path,
+    subworkers: int,
     dodgewhite: bool,
     workers: int
 ):
-    ProcessExecutor = ThreadPoolExecutor(max_workers=workers)
+    ProcessExecutor = ProcessPoolExecutor(max_workers=workers)
     fut = {ProcessExecutor.submit(ImageProcess, 
                                   pl.Path(target), 
-                                  pl.Path(savelocation), 
+                                  pl.Path(savelocation),
+                                  subworkers,
                                   dodgewhite): target for target in targets}
     start = time_ns()
     completed = 0
