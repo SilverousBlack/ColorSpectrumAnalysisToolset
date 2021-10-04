@@ -17,6 +17,7 @@ from time import time_ns, process_time_ns, sleep
 # concurrency
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
+from utilities.colordata import PixelSummary
 
 # prebuilt utilities
 import utilities
@@ -32,11 +33,27 @@ def ColorMeshCompensate(target: pl.Path):
     # support to follow
     return Image.open(target)
 
+def processchunk(
+    section: int,
+    chunk: np.ndarray,
+    dodgewhite: bool,
+    bufdat: tuple
+):
+    buffer = []
+    for j in range(len(chunk)):
+        data = chunk[j]
+        result = PixelSummary(GetLocus(section, j, bufdat[0], bufdat[1]), data)
+        if dodgewhite == True and result["hex"] == "#FFFFFF":
+            continue
+        else:
+            buffer.append(result)
+    return buffer
+
 def ImageProcess(
     target: pl.Path, 
     saveloc: pl.Path,
     subworkers: int,
-    dodgewhite = True,
+    dodgewhite: bool,
     compensate: bool = False
 ):
     LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
@@ -47,21 +64,24 @@ def ImageProcess(
                                     "red": "int64", "green": "int64", "blue": "int64", 
                                     "white": "int64", "whitepercent": "int64",
                                     "black": "int64", "blackpercent": "int64"})
+    LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
     start = process_time_ns()
     internal = Image.open(target) if compensate == False else ColorMeshCompensate(target)
     width, height = internal.size
     internal = np.array(internal, np.uint32)
-    for i in range(width):
-        LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
-        fut = {LocalExecutor.submit(utilities.PixelSummary, GetLocus(i, j, width, height), internal[j, i]): j for j in range(height)}
-        for thr in as_completed(fut):
-            result = thr.result()
-            if dodgewhite == True and result["hex"] == "#FFFFFF":
-                continue
-            else:
-                LocalTable = LocalTable.append(result, ignore_index=True)
+    fut = {LocalExecutor.submit(processchunk, 
+                                i, 
+                                internal[:, i, :],
+                                dodgewhite,
+                                (width, height))
+           : i for i in range(width)
+           }
+    LocalExecutor.shutdown(wait=True, cancel_futures=False)
+    for buf in as_completed(fut):
+        result = buf.result()
+        LocalTable = LocalTable.append(buf.result(), ignore_index=True, sort=False)
     total_time = (process_time_ns() - start) / 1000000000
-    LocalTable.sort_values(by="hex")
+    LocalTable = LocalTable.sort_values(by="locus")
     totalpx = height * width
     fname = str(target.name).rstrip(pl.Path(target.name).suffix)
     LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
