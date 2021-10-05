@@ -265,7 +265,8 @@ def main(
         sleep(0.5)
         cls()
     for i in as_completed(fut):
-        print(i)
+        buffer = str(i).rstrip(">").split(" ")
+        print("{}: {}".format(buffer[2], i.result()))
     print("Cycle Complete!")
 
 if __name__ == "__main__":
