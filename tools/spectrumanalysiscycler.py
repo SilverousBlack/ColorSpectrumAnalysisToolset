@@ -17,12 +17,18 @@ from time import time_ns, process_time_ns, sleep
 # concurrency
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
-from utilities.colordata import PixelSummary
+from subprocess import call
 
 # prebuilt utilities
 import utilities
 
 bar = "===== ===== ===== ===== ====="
+
+def cls():
+    if os.name == "nt":
+        os.system("cls")
+    elif os.name == "posix":
+        os.system("clear")
 
 def GetID(x, xmax):
     return (len(str(xmax)) - len(str(x))) * "_" + str(x)
@@ -45,7 +51,7 @@ def processchunk(
     buffer = []
     for j in range(len(chunk)):
         data = chunk[j]
-        result = PixelSummary(GetLocus(section, j, bufdat[0], bufdat[1]), data)
+        result = utilities.PixelSummary(GetLocus(section, j, bufdat[0], bufdat[1]), data)
         if dodgewhite == True and result["hex"] == "#FFFFFF":
             continue
         else:
@@ -59,73 +65,83 @@ def ImageProcess(
     dodgewhite: bool,
     compensate: bool = False
 ):
-    LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
-                                       "red", "green", "blue", 
-                                       "white", "whitepercent",
-                                       "black", "blackpercent"])
-    LocalTable = LocalTable.astype({"locus": "object", "hex": "object", "transparency": "int64",
-                                    "red": "int64", "green": "int64", "blue": "int64", 
-                                    "white": "int64", "whitepercent": "int64",
-                                    "black": "int64", "blackpercent": "int64"})
-    LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
-    start = process_time_ns()
-    internal = Image.open(target) if compensate == False else ColorMeshCompensate(target)
-    width, height = internal.size
-    internal = np.array(internal, np.uint32)
-    fut = {LocalExecutor.submit(processchunk, 
-                                i, 
-                                internal[:, i, :],
-                                dodgewhite,
-                                (width, height))
-           : i for i in range(width)
-           }
-    LocalExecutor.shutdown(wait=True, cancel_futures=False)
-    for buf in as_completed(fut):
-        result = buf.result()
-        LocalTable = LocalTable.append(buf.result(), ignore_index=True, sort=False)
-    total_time = (process_time_ns() - start) / 1000000000
-    LocalTable = LocalTable.sort_values(by="locus")
-    totalpx = height * width
-    fname = str(target.name).rstrip(pl.Path(target.name).suffix)
-    LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
-    unique_colors = dict(LocalTable.hex.value_counts())
-    fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
-    fbuf.writelines([
-        bar + "\n"
-        "File: " + str(target) + "\n",
-        "Height: " + str(height) + "px\n",
-        "Width: " + str(width) + "px\n",
-        bar + "\n",
-        "Total Pixels: " + str(totalpx) + "px\n"
-        "Total Process Time: " + str(total_time) + " seconds\n",
-        bar + "\n",
-        "Red Pixel Color Intensity Statistics" + "\n",
-        "\tBase: " + str(LocalTable["red"].min()) + "\n",
-        "\tMean: " + str(LocalTable["red"].mean()) + "\n",
-        "\tPeak: " + str(LocalTable["red"].max()) + "\n",
-        bar + "\n",
-        "Green Pixel Color Intensity Statistics" + "\n",
-        "\tBase: " + str(LocalTable["green"].min()) + "\n",
-        "\tMean: " + str(LocalTable["green"].mean()) + "\n",
-        "\tPeak: " + str(LocalTable["green"].max()) + "\n",
-        bar + "\n",
-        "Blue Pixel Color Intensity Statistics" + "\n",
-        "\tBase: " + str(LocalTable["blue"].min()) + "\n",
-        "\tMean: " + str(LocalTable["blue"].mean()) + "\n",
-        "\tPeak: " + str(LocalTable["blue"].max()) + "\n",
-        bar + "\n",
-        "Unique Color Count: " + str(len(unique_colors)) + " colors\n"
-    ])
-    index = 1
-    for key, value in unique_colors.items():
-        fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + key + " [" + str(value) + " instances]\n")
-        index += 1
-    fbuf.close()
+    try:
+        LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
+                                        "red", "green", "blue", 
+                                        "white", "whitepercent",
+                                        "black", "blackpercent"])
+        LocalTable = LocalTable.astype({"locus": "object", "hex": "object", "transparency": "int64",
+                                        "red": "int64", "green": "int64", "blue": "int64", 
+                                        "white": "int64", "whitepercent": "int64",
+                                        "black": "int64", "blackpercent": "int64"})
+        LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
+        start = process_time_ns()
+        internal = Image.open(target) if compensate == False else ColorMeshCompensate(target)
+        width, height = internal.size
+        internal = np.array(internal, np.uint32)
+        fut = {LocalExecutor.submit(processchunk, 
+                                    i, 
+                                    internal[:, i, :],
+                                    dodgewhite,
+                                    (width, height))
+            : i for i in range(width)
+            }
+        LocalExecutor.shutdown(wait=True, cancel_futures=False)
+        for buf in as_completed(fut):
+            LocalTable = LocalTable.append(buf.result(), ignore_index=True, sort=False)
+        total_time = (process_time_ns() - start) / 1000000000
+        LocalTable = LocalTable.sort_values(by="locus")
+        totalpx = height * width
+        fname = str(target.name).rstrip(pl.Path(target.name).suffix)
+        LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
+        unique_colors = dict(LocalTable.hex.value_counts())
+        fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
+        fbuf.writelines([
+            bar + "\n"
+            "File: " + str(target) + "\n",
+            "Height: " + str(height) + "px\n",
+            "Width: " + str(width) + "px\n",
+            bar + "\n",
+            "Total Pixels: " + str(totalpx) + "px\n"
+            "Total Process Time: " + str(total_time) + " seconds\n",
+            bar + "\n",
+            "Red Pixel Color Intensity Statistics" + "\n",
+            "\tBase: " + str(LocalTable["red"].min()) + "\n",
+            "\tMean: " + str(LocalTable["red"].mean()) + "\n",
+            "\tPeak: " + str(LocalTable["red"].max()) + "\n",
+            bar + "\n",
+            "Green Pixel Color Intensity Statistics" + "\n",
+            "\tBase: " + str(LocalTable["green"].min()) + "\n",
+            "\tMean: " + str(LocalTable["green"].mean()) + "\n",
+            "\tPeak: " + str(LocalTable["green"].max()) + "\n",
+            bar + "\n",
+            "Blue Pixel Color Intensity Statistics" + "\n",
+            "\tBase: " + str(LocalTable["blue"].min()) + "\n",
+            "\tMean: " + str(LocalTable["blue"].mean()) + "\n",
+            "\tPeak: " + str(LocalTable["blue"].max()) + "\n",
+            bar + "\n",
+            "Unique Color Count: " + str(len(unique_colors)) + " colors\n"
+        ])
+        color_data = []
+        index = 1
+        for key, value in unique_colors.items():
+            fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + key + " [" + str(value) + " instances]\n")
+            color_data.append({"hex": key, "instances": value})
+            index += 1
+        fbuf.close()
+        color_table = pd.DataFrame(data=color_data, columns=["hex", "instances"])
+        color_table["percent"] = (color_table["instances"] / (height * width)) * 100
+        color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= 1.5 else "Mesh", axis=1) # Non-mesh pixels have occurence rate of at least 1.5%
+        color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
+        return "Process Success"
+    except Exception as e:
+        return "Process hit an error: " + str(e)
 
 # CLI in-line argument support coming soon
 
 def dialog():
     # CLI dialog when no in-line arguments are given 
+    cls()
     internal = {}
     print("Color Spectrum Analysis Tool")
     print(bar)
@@ -218,21 +234,36 @@ def main(
                                   pl.Path(savelocation),
                                   subworkers,
                                   dodgewhite): target for target in targets}
+    cls()
     start = time_ns()
+    active = workers
     completed = 0
+    pending = len(targets) - (completed + active)
     while (completed != len(targets)):
+        print(bar)
+        print("Targets: ")
+        for i in targets:
+            print("\t> " + i)
+        print("Simultaneous Processes: " + str(workers))
+        print("Simultaneous Threads per Process: " + str(subworkers))
+        print(bar)
+        print("Elapsed: {:.2f} seconds".format((time_ns() - start) / 1000000000))
+        print("Active (working): " + str(active) + " jobs")
+        print("In Queue (waiting): " + str(pending) + " jobs")
+        print("Completed (finished): " + str(completed) + " jobs")
+        print(bar)
         active = 0
-        rusk = 0
+        completed = 0
         for i in fut:
-            if "state=running" in str(i):
+            buffer = str(i).rstrip(">").split(" ")
+            print("{}: {}".format(buffer[2], buffer[3].rstrip()))
+            if buffer[3] == "state=running":
                 active += 1
-            if "state=finished" in str(i):
-                rusk += 1
-        completed = rusk
+            if buffer[3] == "state=finished":
+                completed += 1
         pending = len(targets) - (completed + active)
-        print("Running... Active: {} | Pending: {} | Completed: {} | Elapsed: {:.2f}".format(active, pending, completed, (time_ns() - start) / 1000000000), end="\r")
         sleep(0.5)
-        print(" " * 75, end="\r")
+        cls()
     for i in as_completed(fut):
         print(i)
     print("Cycle Complete!")
