@@ -1,2 +1,2 @@
-from .colordata import PixelSummary
+from .colordata import PixelSummary, ColorDataFromHex
 from .edgedetectionalgorithms import *

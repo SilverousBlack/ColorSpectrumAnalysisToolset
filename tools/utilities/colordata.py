@@ -1,5 +1,12 @@
 import numpy as np
 
+def ColorDataFromHex(buf: str):
+    code = buf.lstrip("#")
+    vr = int(code[0:2], 16)
+    vg = int(code[2:4], 16)
+    vb = int(code[4:6], 16)
+    return (vr, vg, vb)
+
 def GetHexString(data: np.ndarray):
     rb = str(hex(data[0]).lstrip("0x").rstrip("L")) or "00"
     rbuf = rb if len(rb) == 2 else "0" + rb

@@ -38,9 +38,40 @@ def  GetLocus(x: int, y: int, xmax: int, ymax: int):
     ybuf = (len(str(ymax)) - len(str(y))) * "0" + str(y)
     return "X" + xbuf + "Y" + ybuf
 
-def ColorMeshCompensate(target: pl.Path):
-    # support to follow
-    return Image.open(target)
+def ColorMeshCompensate(
+    dominant: list,
+    strain: tuple,
+    tolerance: float = 15,
+    grad: float = 15
+):
+    if strain in dominant:
+        return "Dominant"
+    buffer = {}
+    for dom in dominant:
+        dom = np.array(dom)
+        strain = np.array(strain)
+        dscore = strain - dom
+        score = np.sum(((255 - dscore) / 255) * grad) / 3
+        if score >= tolerance:
+            val = utilities.colordata.GetHexString(dom)
+            buffer[score] = "{} by {}%".format(val, score)
+        else:
+            continue
+    if len(buffer) > 0:
+        return buffer[np.max(np.array(list(buffer.keys())))]
+    else:
+        return "Rare Unique"
+
+def FeedCompensate(
+    dominant: list,
+    buffer: pd.Series,
+    tolerance: int,
+    grad: int
+):
+    internal = []
+    for i in buffer:
+        internal.append(ColorMeshCompensate(dominant, utilities.ColorDataFromHex(i), tolerance, grad))
+    return pd.Series(internal)
 
 def processchunk(
     section: int,
@@ -63,7 +94,10 @@ def ImageProcess(
     saveloc: pl.Path,
     subworkers: int,
     dodgewhite: bool,
-    compensate: bool = False
+    compensate: bool = False,
+    dominance: float = 1.5,
+    tolerance: float = 15,
+    grad: float = 15
 ):
     try:
         LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
@@ -76,7 +110,7 @@ def ImageProcess(
                                         "black": "int64", "blackpercent": "int64"})
         LocalExecutor = ThreadPoolExecutor(max_workers=subworkers)
         start = process_time_ns()
-        internal = Image.open(target) if compensate == False else ColorMeshCompensate(target)
+        internal = Image.open(target)
         width, height = internal.size
         internal = np.array(internal, np.uint32)
         fut = {LocalExecutor.submit(processchunk, 
@@ -95,15 +129,37 @@ def ImageProcess(
         fname = str(target.name).rstrip(pl.Path(target.name).suffix)
         LocalTable.to_csv(str(saveloc) + "\\" + fname + ".csv", index=False)
         unique_colors = dict(LocalTable.hex.value_counts())
+        color_data = []
+        dominant_colors = []
+        for key, value in unique_colors.items():
+            percent = value / (height * width) * 100
+            color_data.append({"hex": key,
+                           "instances": value,
+                           "percent": percent})
+            if percent >= dominance:
+                dominant_colors.append(utilities.ColorDataFromHex(key))
+        color_table = pd.DataFrame(data=color_data, columns=["hex", "instances", "percent"])
+        if compensate == True:
+            color_table["state"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance, grad)
+        else:
+            color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= dominance else "Mesh", axis=1)
+        color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
+        del color_data, dominant_colors
+        unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
         fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
         fbuf.writelines([
-            bar + "\n"
+            bar + "\n",
             "File: " + str(target) + "\n",
             "Height: " + str(height) + "px\n",
             "Width: " + str(width) + "px\n",
             bar + "\n",
             "Total Pixels: " + str(totalpx) + "px\n"
             "Total Process Time: " + str(total_time) + " seconds\n",
+            "Dodging White [#FFFFFF] pixels: " + str(dodgewhite) + "\n",
+            "Mass Dominance Rate: " + str(dominance) + "\n",
+            "Compensating for Color Mesh: " + str(compensate) + "\n",
+            ("Color Mesh Tolerance: " + str(tolerance) + "\n") if compensate == True else "",
+            ("Mesh Gradient Rate: " + str(grad) + "\n") if compensate == True else "",
             bar + "\n",
             "Red Pixel Color Intensity Statistics" + "\n",
             "\tBase: " + str(LocalTable["red"].min()) + "\n",
@@ -122,17 +178,14 @@ def ImageProcess(
             bar + "\n",
             "Unique Color Count: " + str(len(unique_colors)) + " colors\n"
         ])
-        color_data = []
         index = 1
-        for key, value in unique_colors.items():
-            fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + key + " [" + str(value) + " instances]\n")
-            color_data.append({"hex": key, "instances": value})
+        for value in unique_colors:
+            fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + value[0]
+                       + " [" + str(value[1]) + " instances, "
+                       + str(value[2]) + "%, "
+                       + str(value[3]) + "]\n")
             index += 1
         fbuf.close()
-        color_table = pd.DataFrame(data=color_data, columns=["hex", "instances"])
-        color_table["percent"] = (color_table["instances"] / (height * width)) * 100
-        color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= 1.5 else "Mesh", axis=1) # Non-mesh pixels have occurence rate of at least 1.5%
-        color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
         return "Process Success"
     except Exception as e:
         return "Process hit an error: " + str(e)
@@ -155,7 +208,7 @@ def dialog():
                 buf = []
                 for i in targets:
                     if pl.Path(target + "/" + i).is_file():
-                        buf.append(target + "/" + i)
+                        buf.append(pl.Path(target + "/" + i).as_posix())
                 internal["targets"] = buf
             break
         else:
@@ -219,6 +272,51 @@ def dialog():
             print(bar)
         del target
     print(bar)
+    while(True):
+        target = float(input("Input dominance rate (recommended: 1.5): ")) or 0
+        if 0 < target:
+            internal["dominance"] = target
+            break
+        else:
+            print("Cannot be zero or negative. Try Again.")
+            print(bar)
+        del target
+    print(bar)
+    while(True):
+        target = input("Compensate for color mesh (y/n): ").lower()
+        if target in ["y", "n"]:
+            if target == "y":
+                print("Will compensate for color mesh.")
+                internal["compensate"] = True
+                break
+            elif target == "n":
+                print("Will not compensate for color mesh.")
+                internal["compensate"] = False
+                break
+        else:
+            print("Unknown input. Try Again.")
+            print(bar)
+        del target
+    print(bar)
+    while(internal["compensate"]):
+        target = float(input("Input compensation tolerance rate (recommended: 15): ")) or 0
+        if 0 < target:
+            internal["tolerance"] = target
+            break
+        else:
+            print("Cannot be zero or negative. Try Again.")
+            print(bar)
+        del target
+    print(bar)
+    while(internal["compensate"]):
+        target = float(input("Input mesh gradient rate (recommended: 15): ")) or 0
+        if 0 < target:
+            internal["grad"] = target
+            break
+        else:
+            print("Cannot be zero or negative. Try Again.")
+            print(bar)
+        del target
     return internal
 
 def main(
@@ -226,14 +324,22 @@ def main(
     savelocation: pl.Path,
     subworkers: int,
     dodgewhite: bool,
-    workers: int
+    workers: int,
+    compensate: bool = False,
+    dominance: float = 1.5,
+    tolerance: float = 15,
+    grad: float = 15
 ):
     ProcessExecutor = ProcessPoolExecutor(max_workers=workers)
     fut = {ProcessExecutor.submit(ImageProcess, 
                                   pl.Path(target), 
                                   pl.Path(savelocation),
                                   subworkers,
-                                  dodgewhite): target for target in targets}
+                                  dodgewhite,
+                                  compensate,
+                                  dominance,
+                                  tolerance,
+                                  grad): target for target in targets}
     cls()
     start = time_ns()
     active = workers
