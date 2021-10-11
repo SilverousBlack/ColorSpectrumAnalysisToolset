@@ -2,7 +2,7 @@
 import pathlib as pl
 import os
 from io import open
-from numpy.lib.function_base import iterable
+from numpy.lib.function_base import gradient, iterable
 
 # manipulation and tabulation
 import pandas as pd
@@ -50,8 +50,11 @@ def ColorMeshCompensate(
     for dom in dominant:
         dom = np.array(dom)
         strain = np.array(strain)
-        dscore = strain - dom
-        score = np.sum(((255 - dscore) / 255) * grad) / 3
+        rscore = (strain - dom) / grad 
+        iscore = ((np.max(dom) - strain) - (np.max(strain) - dom)) / grad 
+        mscore = ((strain - np.min(dom)) - (dom - np.max(strain))) / grad
+        dscore = (((rscore + mscore + iscore) / 3) * grad) % 255
+        score = (np.average(255 - dscore) / 255) * 100
         if score >= tolerance:
             val = utilities.colordata.GetHexString(dom)
             buffer[score] = "{} by {}%".format(val, score)
@@ -60,7 +63,7 @@ def ColorMeshCompensate(
     if len(buffer) > 0:
         return buffer[np.max(np.array(list(buffer.keys())))]
     else:
-        return "Rare Unique"
+        return "Non-Dominant Unique"
 
 def FeedCompensate(
     dominant: list,
@@ -145,7 +148,7 @@ def ImageProcess(
             color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= dominance else "Mesh", axis=1)
         color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
         del color_data, dominant_colors
-        unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
+        unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Non-Dominant Unique"])].to_numpy()
         fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
         fbuf.writelines([
             bar + "\n",
