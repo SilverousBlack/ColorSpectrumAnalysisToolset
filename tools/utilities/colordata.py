@@ -1,4 +1,5 @@
 import numpy as np
+from math import pow, sqrt
 
 def ColorDataFromHex(buf: str):
     code = buf.lstrip("#")
@@ -21,6 +22,12 @@ def WhiteData(data: np.ndarray):
 
 def BlackData(data: np.ndarray):
     return [(255 - data.max()), ((255 - data.max()) / 255) * 100]
+
+def EuclidColorDifference(istrain: np.array, cstrain: np.array):
+    return sqrt(np.sum(np.power(istrain - cstrain, 2)))
+
+def CIEDE2000():
+    pass
 
 def PixelSummary(locus: str, data: np.ndarray):
     internal = {"locus": locus}

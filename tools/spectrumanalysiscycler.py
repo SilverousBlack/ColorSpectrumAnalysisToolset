@@ -2,11 +2,12 @@
 import pathlib as pl
 import os
 from io import open
-from numpy.lib.function_base import gradient, iterable
+from numpy.lib.function_base import iterable
 
 # manipulation and tabulation
 import pandas as pd
 import numpy as np
+from math import sqrt, pow
 
 # images
 from PIL import Image
@@ -17,7 +18,6 @@ from time import time_ns, process_time_ns, sleep
 # concurrency
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
-from subprocess import call
 
 # prebuilt utilities
 import utilities
@@ -41,40 +41,37 @@ def  GetLocus(x: int, y: int, xmax: int, ymax: int):
 def ColorMeshCompensate(
     dominant: list,
     strain: tuple,
-    tolerance: float = 15,
-    grad: float = 15
+    tolerance: float = 1.5,
 ):
     if strain in dominant:
-        return "Dominant"
+        return ("Dominant", np.nan)
     buffer = {}
     for dom in dominant:
         dom = np.array(dom)
         strain = np.array(strain)
-        rscore = (strain - dom) / grad 
-        iscore = ((np.max(dom) - strain) - (np.max(strain) - dom)) / grad 
-        mscore = ((strain - np.min(dom)) - (dom - np.max(strain))) / grad
-        dscore = (((rscore + mscore + iscore) / 3) * grad) % 255
-        score = (np.average(255 - dscore) / 255) * 100
+        score = 100 - utilities.EuclidColorDifference(strain, dom)
         if score >= tolerance:
             val = utilities.colordata.GetHexString(dom)
-            buffer[score] = "{} by {}%".format(val, score)
+            buffer[score] = (val, "{:.2f}%".format(score))
         else:
             continue
     if len(buffer) > 0:
         return buffer[np.max(np.array(list(buffer.keys())))]
     else:
-        return "Non-Dominant Unique"
+        return ("Rare Unique", np.nan)
 
 def FeedCompensate(
     dominant: list,
     buffer: pd.Series,
     tolerance: int,
-    grad: int
 ):
-    internal = []
+    relative = []
+    percent = []
     for i in buffer:
-        internal.append(ColorMeshCompensate(dominant, utilities.ColorDataFromHex(i), tolerance, grad))
-    return pd.Series(internal)
+        rel, per = ColorMeshCompensate(dominant, utilities.ColorDataFromHex(i), tolerance)
+        relative.append(rel)
+        percent.append(per)
+    return (pd.Series(relative), pd.Series(percent))
 
 def processchunk(
     section: int,
@@ -99,10 +96,9 @@ def ImageProcess(
     dodgewhite: bool,
     compensate: bool = False,
     dominance: float = 1.5,
-    tolerance: float = 15,
-    grad: float = 15
+    tolerance: float = 1.5
 ):
-    try:
+    
         LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
                                         "red", "green", "blue", 
                                         "white", "whitepercent",
@@ -143,12 +139,12 @@ def ImageProcess(
                 dominant_colors.append(utilities.ColorDataFromHex(key))
         color_table = pd.DataFrame(data=color_data, columns=["hex", "instances", "percent"])
         if compensate == True:
-            color_table["state"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance, grad)
+            color_table["e-relative"], color_table["e-diff"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance)
         else:
             color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= dominance else "Mesh", axis=1)
         color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
         del color_data, dominant_colors
-        unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Non-Dominant Unique"])].to_numpy()
+        unique_colors = color_table.loc[color_table["e-relative"].isin(["Dominant", "Rare Unique"])].to_numpy() if compensate == True else color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
         fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
         fbuf.writelines([
             bar + "\n",
@@ -162,7 +158,7 @@ def ImageProcess(
             "Mass Dominance Rate: " + str(dominance) + "\n",
             "Compensating for Color Mesh: " + str(compensate) + "\n",
             ("Color Mesh Tolerance: " + str(tolerance) + "\n") if compensate == True else "",
-            ("Mesh Gradient Rate: " + str(grad) + "\n") if compensate == True else "",
+            ("Color Difference Mode: Euclidean\n") if compensate == True else "",
             bar + "\n",
             "Red Pixel Color Intensity Statistics" + "\n",
             "\tBase: " + str(LocalTable["red"].min()) + "\n",
@@ -190,7 +186,7 @@ def ImageProcess(
             index += 1
         fbuf.close()
         return "Process Success"
-    except Exception as e:
+    
         return "Process hit an error: " + str(e)
 
 # CLI in-line argument support coming soon
@@ -302,19 +298,9 @@ def dialog():
         del target
     print(bar)
     while(internal["compensate"]):
-        target = float(input("Input compensation tolerance rate (recommended: 15): ")) or 0
+        target = float(input("Input compensation tolerance rate (recommended: 1.5): ")) or 0
         if 0 < target:
             internal["tolerance"] = target
-            break
-        else:
-            print("Cannot be zero or negative. Try Again.")
-            print(bar)
-        del target
-    print(bar)
-    while(internal["compensate"]):
-        target = float(input("Input mesh gradient rate (recommended: 15): ")) or 0
-        if 0 < target:
-            internal["grad"] = target
             break
         else:
             print("Cannot be zero or negative. Try Again.")
@@ -331,7 +317,6 @@ def main(
     compensate: bool = False,
     dominance: float = 1.5,
     tolerance: float = 15,
-    grad: float = 15
 ):
     ProcessExecutor = ProcessPoolExecutor(max_workers=workers)
     fut = {ProcessExecutor.submit(ImageProcess, 
@@ -341,8 +326,7 @@ def main(
                                   dodgewhite,
                                   compensate,
                                   dominance,
-                                  tolerance,
-                                  grad): target for target in targets}
+                                  tolerance): target for target in targets}
     cls()
     start = time_ns()
     active = workers
