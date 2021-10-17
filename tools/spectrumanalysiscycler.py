@@ -44,34 +44,30 @@ def ColorMeshCompensate(
     tolerance: float = 1.5,
 ):
     if strain in dominant:
-        return ("Dominant", np.nan)
+        return ("Dominant", utilities.GetHexString(strain), np.nan)
     buffer = {}
     for dom in dominant:
         dom = np.array(dom)
         strain = np.array(strain)
         score = 100 - utilities.EuclidColorDifference(strain, dom)
-        if score >= tolerance:
-            val = utilities.colordata.GetHexString(dom)
-            buffer[score] = (val, "{:.2f}%".format(score))
-        else:
-            continue
-    if len(buffer) > 0:
-        return buffer[np.max(np.array(list(buffer.keys())))]
-    else:
-        return ("Rare Unique", np.nan)
+        val = utilities.colordata.GetHexString(dom)
+        buffer[score] = ("Mesh" if score >= tolerance else "Rare Unique", val, "{:.2f}%".format(score))
+    return buffer[np.max(np.array(list(buffer.keys())))]
 
 def FeedCompensate(
     dominant: list,
     buffer: pd.Series,
     tolerance: int,
 ):
+    state = []
     relative = []
     percent = []
     for i in buffer:
-        rel, per = ColorMeshCompensate(dominant, utilities.ColorDataFromHex(i), tolerance)
+        stat, rel, per = ColorMeshCompensate(dominant, utilities.ColorDataFromHex(i), tolerance)
+        state.append(stat)
         relative.append(rel)
         percent.append(per)
-    return (pd.Series(relative), pd.Series(percent))
+    return (pd.Series(state), pd.Series(relative), pd.Series(percent))
 
 def processchunk(
     section: int,
@@ -98,7 +94,7 @@ def ImageProcess(
     dominance: float = 1.5,
     tolerance: float = 1.5
 ):
-    
+    try:
         LocalTable = pd.DataFrame(columns=["locus", "hex", "transparency",
                                         "red", "green", "blue", 
                                         "white", "whitepercent",
@@ -139,12 +135,12 @@ def ImageProcess(
                 dominant_colors.append(utilities.ColorDataFromHex(key))
         color_table = pd.DataFrame(data=color_data, columns=["hex", "instances", "percent"])
         if compensate == True:
-            color_table["e-relative"], color_table["e-diff"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance)
+            color_table["state"], color_table["e-relative"], color_table["e-diff"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance)
         else:
             color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= dominance else "Mesh", axis=1)
         color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
         del color_data, dominant_colors
-        unique_colors = color_table.loc[color_table["e-relative"].isin(["Dominant", "Rare Unique"])].to_numpy() if compensate == True else color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
+        unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
         fbuf = open(str(saveloc) + "\\" + fname + "_summary.txt", "w+", encoding="utf-8")
         fbuf.writelines([
             bar + "\n",
@@ -179,14 +175,17 @@ def ImageProcess(
         ])
         index = 1
         for value in unique_colors:
-            fbuf.write("\t" + GetID(index, len(unique_colors)) + ": " + value[0]
-                       + " [" + str(value[1]) + " instances, "
-                       + str(value[2]) + "%, "
-                       + str(value[3]) + "]\n")
+            fbuf.write("\t{0}: {1} [{2} instances, {3:.2f}%, {4}]\n".format(
+                GetID(index, len(unique_colors)),
+                value[0], value[1], value[2], value[3]
+            ) if value[2] >= 0.01 else "\t{0}: {1} [{2} instances, {3:.2e}%, {4}]".format(
+                GetID(index, len(unique_colors)),
+                value[0], value[1], value[2], value[3]
+            ))
             index += 1
         fbuf.close()
         return "Process Success"
-    
+    except Exception as e:
         return "Process hit an error: " + str(e)
 
 # CLI in-line argument support coming soon
