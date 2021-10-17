@@ -178,7 +178,7 @@ def ImageProcess(
             fbuf.write("\t{0}: {1} [{2} instances, {3:.2f}%, {4}]\n".format(
                 GetID(index, len(unique_colors)),
                 value[0], value[1], value[2], value[3]
-            ) if value[2] >= 0.01 else "\t{0}: {1} [{2} instances, {3:.2e}%, {4}]".format(
+            ) if value[2] >= 0.01 else "\t{0}: {1} [{2} instances, {3:.2e}%, {4}]\n".format(
                 GetID(index, len(unique_colors)),
                 value[0], value[1], value[2], value[3]
             ))
