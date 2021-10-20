@@ -44,14 +44,14 @@ def ColorMeshCompensate(
     tolerance: float = 1.5,
 ):
     if strain in dominant:
-        return ("Dominant", utilities.GetHexString(strain), np.nan)
+        return ("Dominant", utilities.GetHexString(strain), 100.00)
     buffer = {}
     for dom in dominant:
         dom = np.array(dom)
         strain = np.array(strain)
-        score = 100 - utilities.EuclidColorDifference(strain, dom)
+        score = abs((255 - utilities.EuclidColorDifference(strain, dom)) / 256) * 100
         val = utilities.colordata.GetHexString(dom)
-        buffer[score] = ("Mesh" if score >= tolerance else "Rare Unique", val, "{:.2f}%".format(score))
+        buffer[score] = ("Mesh" if score >= tolerance else "Rare Unique", val, score)
     return buffer[np.max(np.array(list(buffer.keys())))]
 
 def FeedCompensate(
@@ -137,7 +137,7 @@ def ImageProcess(
         if compensate == True:
             color_table["state"], color_table["e-relative"], color_table["e-diff"] = FeedCompensate(dominant_colors, color_table["hex"], tolerance)
         else:
-            color_table["state"] = color_table.apply(lambda x: "Dominant" if x["percent"] >= dominance else "Mesh", axis=1)
+            color_table["state"], color_table["e-relative"], color_table["e-diff"] = FeedCompensate(dominant_colors, color_table["hex"], 0)
         color_table.to_csv(str(saveloc) + "\\" + fname + "_colors.csv", index=False)
         del color_data, dominant_colors
         unique_colors = color_table.loc[color_table["state"].isin(["Dominant", "Rare Unique"])].to_numpy()
@@ -153,8 +153,8 @@ def ImageProcess(
             "Dodging White [#FFFFFF] pixels: " + str(dodgewhite) + "\n",
             "Mass Dominance Rate: " + str(dominance) + "\n",
             "Compensating for Color Mesh: " + str(compensate) + "\n",
-            ("Color Mesh Tolerance: " + str(tolerance) + "\n") if compensate == True else "",
-            ("Color Difference Mode: Euclidean\n") if compensate == True else "",
+            ("Color Mesh Tolerance: " + str(tolerance) + "\n") if compensate == True else "Auto relative color calculation tolerance rate: 0\n",
+            "Color Difference Mode: Euclidean\n",
             bar + "\n",
             "Red Pixel Color Intensity Statistics" + "\n",
             "\tBase: " + str(LocalTable["red"].min()) + "\n",
@@ -175,13 +175,21 @@ def ImageProcess(
         ])
         index = 1
         for value in unique_colors:
-            fbuf.write("\t{0}: {1} [{2} instances, {3:.2f}%, {4}]\n".format(
+            cbuf = pd.DataFrame(color_table[color_table["e-relative"].isin([value[0]])])
+            mcount = cbuf.shape[0] - 1
+            mtotal = cbuf["instances"].sum() - value[1]
+            mpercent = cbuf["percent"].sum() - value[2]
+            fbuf.writelines(["\t{0}: {1} [{2} instances, {3:.2f}%, {4}]\n".format(
                 GetID(index, len(unique_colors)),
                 value[0], value[1], value[2], value[3]
             ) if value[2] >= 0.01 else "\t{0}: {1} [{2} instances, {3:.2e}%, {4}]\n".format(
                 GetID(index, len(unique_colors)),
                 value[0], value[1], value[2], value[3]
-            ))
+            ), 
+                "\t\t> Mesh: {0} colors [{1}, {2:.2f}%]\n".format(
+                    mcount, 
+                    mtotal, 
+                    mpercent) if mcount > 1 else ""])
             index += 1
         fbuf.close()
         return "Process Success"
@@ -362,5 +370,10 @@ def main(
     print("Cycle Complete!")
 
 if __name__ == "__main__":
+#    ImageProcess(
+#        pl.Path("G:\\Git\\ColorSpectrumAnalysisToolset\\docs\\test images\\small.png"),
+#        pl.Path("G:\\Git\\ColorSpectrumAnalysisToolset\\docs\\csa"),
+#        6, False, False, 1.5, 1.5
+#    )
     args = dialog()
     main(**args)
