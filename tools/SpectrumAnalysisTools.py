@@ -1,26 +1,4 @@
-# files
-import pathlib as pl
-import os
-from io import open
-from numpy.lib.function_base import iterable
-
-# manipulation and tabulation
-import pandas as pd
-import numpy as np
-from math import sqrt, pow
-
-# images
-from PIL import Image
-
-# time
-from time import time_ns, process_time_ns, sleep
-
-# concurrency
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from multiprocessing import cpu_count
-
-# prebuilt utilities
-import utilities
+from core import *
 
 bar = "===== ===== ===== ===== ====="
 
@@ -51,7 +29,7 @@ def ColorMeshCompensate(
     for dom in dominant:
         dom = np.array(dom)
         strain = np.array(strain)
-        score = abs((255 - utilities.EuclidColorDifference(strain, dom)) / 256) * 100
+        score = abs((255 - DE_Euclid(strain, dom)) / 256) * 100
         val = utilities.colordata.GetHexString(dom)
         buffer[score] = ("Mesh" if score >= tolerance else "Rare Unique", val, score)
     return buffer[np.max(np.array(list(buffer.keys())))]
@@ -199,7 +177,7 @@ def ImageProcess(
         return "Process hit an error: " + str(e)
     
 def main(
-    targets: iterable,
+    targets: Iterable,
     savelocation: pl.Path,
     subworkers: int,
     dodgewhite: bool,

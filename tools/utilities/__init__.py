@@ -1,2 +1,1 @@
-from .colordata import *
-from .edgedetectionalgorithms import *
+from .RGBA_colordata import *
